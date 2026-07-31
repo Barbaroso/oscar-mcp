@@ -60,6 +60,10 @@ The data folder is resolved in this order: `OSCAR_DATA_DIR` → the path OSCAR r
 Windows registry → common documents folders (including OneDrive-redirected ones). If none of
 those work, set `OSCAR_DATA_DIR` explicitly.
 
+Auto-detection runs only when you have not said where the data is. If `OSCAR_DATA_DIR` is set
+but holds no `oscar.db`, the server refuses to start rather than searching on — a typo should
+not quietly open a backup, a second profile, or another household member's therapy data.
+
 ## Connect it
 
 ### Claude Desktop

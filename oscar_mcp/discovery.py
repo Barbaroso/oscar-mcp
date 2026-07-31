@@ -5,6 +5,10 @@ Resolution order:
 1. ``OSCAR_DATA_DIR`` environment variable (or an explicit path argument).
 2. The path OSCAR itself recorded in the Windows registry.
 3. Well-known locations under the user's documents folder.
+
+Steps 2 and 3 run only when nothing was asked for. A folder that *was* named
+but holds no database is an error, never a reason to go looking elsewhere:
+silently opening a different person's therapy data is worse than not starting.
 """
 
 from __future__ import annotations
@@ -98,16 +102,28 @@ def _documents_dirs() -> list[Path]:
 
 def discover(explicit: str | os.PathLike[str] | None = None) -> OscarLocation:
     """Find the OSCAR database, raising :class:`DataFolderNotFound` on failure."""
-    tried: list[str] = []
+    from_env = explicit is None
+    requested = os.environ.get("OSCAR_DATA_DIR") if from_env else explicit
 
-    explicit = explicit or os.environ.get("OSCAR_DATA_DIR")
-    if explicit:
-        data_dir = Path(explicit).expanduser()
+    if requested:
+        data_dir = Path(requested).expanduser()
         db = _candidate_from_dir(data_dir)
         if db:
-            source = "argument" if explicit != os.environ.get("OSCAR_DATA_DIR") else "env:OSCAR_DATA_DIR"
-            return OscarLocation(data_dir, db, source)
-        tried.append(str(data_dir))
+            return OscarLocation(
+                data_dir, db, "env:OSCAR_DATA_DIR" if from_env else "argument"
+            )
+        # A named folder is an instruction, not a hint. Searching on from here
+        # would quietly open whichever database happened to be found next --
+        # a backup, a second profile, another household member's data -- and
+        # every answer afterwards would be confidently about the wrong person.
+        origin = "OSCAR_DATA_DIR" if from_env else "The requested data folder"
+        reason = "does not exist" if not data_dir.exists() else f"contains no {DB_FILENAME}"
+        raise DataFolderNotFound(
+            f"{origin} points to {data_dir}, which {reason}. "
+            "Correct the path, or remove the setting to search the usual locations."
+        )
+
+    tried: list[str] = []
 
     for data_dir, source in _registry_candidates():
         db = _candidate_from_dir(data_dir)

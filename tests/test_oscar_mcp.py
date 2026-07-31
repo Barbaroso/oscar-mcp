@@ -74,6 +74,37 @@ def test_discover_reports_failure(tmp_path, monkeypatch):
         discover(tmp_path / "nowhere")
 
 
+def test_named_folder_never_falls_back(tmp_path, monkeypatch):
+    """A wrong OSCAR_DATA_DIR must fail, not open somebody else's database.
+
+    Auto-detection exists for callers who did not say where the data is. Once a
+    folder has been named, finding a different database and using it anyway
+    would make every later answer confidently about the wrong person.
+    """
+    elsewhere = tmp_path / "OSCAR20_Data"
+    fixture.build(elsewhere / "oscar.db", nights=1)
+    monkeypatch.setattr(discovery, "_registry_candidates", lambda: [(elsewhere, "registry:test")])
+    monkeypatch.setattr(discovery, "_documents_dirs", lambda: [tmp_path])
+
+    monkeypatch.setenv("OSCAR_DATA_DIR", str(tmp_path / "typo"))
+    with pytest.raises(DataFolderNotFound, match="OSCAR_DATA_DIR"):
+        discover()
+
+    # The same folder is reachable when nothing was asked for.
+    monkeypatch.delenv("OSCAR_DATA_DIR")
+    assert discover().data_dir == elsewhere
+
+
+def test_wrong_folder_message_distinguishes_missing_from_empty(tmp_path, monkeypatch):
+    monkeypatch.delenv("OSCAR_DATA_DIR", raising=False)
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    with pytest.raises(DataFolderNotFound, match=r"contains no oscar\.db"):
+        discover(empty)
+    with pytest.raises(DataFolderNotFound, match="does not exist"):
+        discover(tmp_path / "absent")
+
+
 def test_discover_finds_documents_folder(tmp_path, monkeypatch):
     data_dir = tmp_path / "OSCAR20_Data"
     fixture.build(data_dir / "oscar.db", nights=1)
