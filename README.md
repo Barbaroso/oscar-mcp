@@ -89,6 +89,22 @@ Edit `claude_desktop_config.json`:
 
 Restart Claude Desktop. The OSCAR tools appear in the tools menu.
 
+### ChatGPT Codex
+
+Edit `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.oscar]
+command = "python"
+args = ["-m", "oscar_mcp"]
+default_tools_approval_mode = "writes"
+
+[mcp_servers.oscar.env]
+OSCAR_DATA_DIR = "C:\\Users\\you\\Documents\\OSCAR20_Data"
+```
+
+Restart Codex. See [Approvals](#approvals) for what the approval mode does.
+
 ### GitHub Copilot CLI / VS Code
 
 Add to `mcp.json`:
@@ -122,6 +138,30 @@ Point at the source directory instead:
 
 On Windows, use the full interpreter path (for example `C:\\Python314\\python.exe`) if
 `python` is not on the PATH seen by the client application.
+
+### Approvals
+
+Every tool here is declared read-only in its MCP metadata (`readOnlyHint`), and the
+declaration is true: the database is opened with SQLite's `mode=ro` and `run_sql`
+accepts nothing but a single `SELECT`. Nothing this server exposes can change your
+therapy data.
+
+Clients use that declaration to decide when to interrupt you. Codex reads it through
+`default_tools_approval_mode`, which takes four values:
+
+| Value | Meaning |
+| --- | --- |
+| `prompt` | Ask before every call. |
+| `auto` | Decide from what each tool declares about itself. |
+| `writes` | Ask only for tools that are *not* declared read-only. |
+| `approve` | Pre-approve everything this server exposes. |
+
+`writes` is recommended. Every tool here declares itself read-only, so nothing prompts
+today; but if a future tool ever stops making that promise, it still stops to ask.
+`approve` gives up that protection, so prefer it only for a server you have read.
+
+If a sandboxed, non-interactive run reports `user cancelled MCP tool call`, that is an
+approval nobody was present to answer -- not a crash, and not a failure of the server.
 
 ## Tools
 

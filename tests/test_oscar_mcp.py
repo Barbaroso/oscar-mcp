@@ -1,6 +1,7 @@
 import asyncio
 import datetime as dt
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -544,6 +545,60 @@ def test_every_tool_declares_itself_read_only():
         assert annotations is not None, f"{tool.name} advertises no annotations"
         assert annotations.read_only_hint is True, f"{tool.name} is not marked read-only"
         assert annotations.destructive_hint is False, f"{tool.name} claims to be destructive"
+
+
+README = Path(__file__).resolve().parents[1] / "README.md"
+
+# Codex rejects the entire config file on an unknown variant, naming the ones it
+# accepts: "unknown variant `zzz`, expected one of `auto`, `prompt`, `writes`,
+# `approve`" (codex-cli 0.146.0).
+CODEX_APPROVAL_MODES = {"auto", "prompt", "writes", "approve"}
+
+
+def _readme_blocks(language: str) -> list[str]:
+    text = README.read_text(encoding="utf-8")
+    return re.findall(rf"^```{language}\n(.*?)^```", text, re.DOTALL | re.MULTILINE)
+
+
+def test_readme_json_examples_parse():
+    """A broken example costs every reader the same ten minutes to rediscover."""
+    blocks = _readme_blocks("json")
+    assert blocks, "the README no longer carries a JSON client example"
+    for block in blocks:
+        json.loads(block)
+
+
+def test_readme_codex_example_parses_as_toml():
+    tomllib = pytest.importorskip("tomllib")
+    blocks = _readme_blocks("toml")
+    assert blocks, "the README no longer carries a Codex example"
+    for block in blocks:
+        tomllib.loads(block)
+
+
+def test_readme_recommends_an_approval_mode_codex_accepts():
+    """A typo here does not degrade gracefully -- Codex refuses to start at all."""
+    tomllib = pytest.importorskip("tomllib")
+    modes = {
+        entry["default_tools_approval_mode"]
+        for block in _readme_blocks("toml")
+        for entry in tomllib.loads(block).get("mcp_servers", {}).values()
+        if "default_tools_approval_mode" in entry
+    }
+    assert modes, "the Codex example no longer sets an approval mode"
+    assert modes <= CODEX_APPROVAL_MODES
+
+
+def test_readme_approval_advice_matches_what_the_server_declares():
+    """The README tells readers to pick `writes` because every tool is read-only.
+
+    That advice is only safe while the claim holds, so tie the two together: if a
+    tool ever ships without the declaration, this fails next to the promise.
+    """
+    text = README.read_text(encoding="utf-8")
+    assert "readOnlyHint" in text
+    tools = asyncio.run(server.server.list_tools())
+    assert all(t.annotations and t.annotations.read_only_hint for t in tools)
 
 
 def test_resources_are_registered_and_valid_json():
