@@ -174,9 +174,10 @@ They are static, cheap to read, and cost no tool call.
 | `oscar://model/glossary` | Apnea, hypopnea, clear airway, RERA, CSR, leak — as OSCAR itself defines them. |
 | `oscar://model` | All of the above in one document. |
 
-Every clinical or arithmetic claim cites its source in this repository — OSCAR's own
-`help/help_en/glossary.html` or its C++ implementation in `SleepLib/`. The AHI and RDI
-formulas are taken from `SleepLib/day.h` and reproduce OSCAR's own stored values exactly.
+Every clinical or arithmetic claim cites a primary source in the OSCAR project — its own
+`help/help_en/glossary.html` or its C++ implementation in `SleepLib/` — rather than restating
+received wisdom. The AHI and RDI formulas are taken from `SleepLib/day.h` and reproduce
+OSCAR's own stored values exactly. A test enforces that no claim ships without a citation.
 
 This matters because the raw numbers invite specific wrong readings, for example:
 
