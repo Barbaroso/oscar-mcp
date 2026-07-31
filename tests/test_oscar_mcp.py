@@ -95,6 +95,17 @@ def test_named_folder_never_falls_back(tmp_path, monkeypatch):
     assert discover().data_dir == elsewhere
 
 
+def test_reported_source_matches_how_it_was_configured(monkeypatch, location):
+    """`discovered_via` has to name the real origin, or tracing a wrong database fails."""
+    monkeypatch.setenv("OSCAR_DATA_DIR", str(location.data_dir))
+    server.set_db(None)
+    try:
+        found = server.list_profiles()["database"]["discovered_via"]
+    finally:
+        server.set_db(OscarDatabase(location=location))
+    assert found == "env:OSCAR_DATA_DIR"
+
+
 def test_wrong_folder_message_distinguishes_missing_from_empty(tmp_path, monkeypatch):
     monkeypatch.delenv("OSCAR_DATA_DIR", raising=False)
     empty = tmp_path / "empty"

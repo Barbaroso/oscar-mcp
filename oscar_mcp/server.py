@@ -112,8 +112,10 @@ def get_db() -> OscarDatabase:
     """Return the shared database handle, opening it on first use."""
     global _db
     if _db is None:
+        # OSCAR_DATA_DIR is deliberately not read here. Discovery owns it, and
+        # passing it on as an argument would misreport where the database came
+        # from -- the first thing worth knowing when the data looks wrong.
         _db = OscarDatabase(
-            data_dir=os.environ.get("OSCAR_DATA_DIR"),
             include_pii=os.environ.get("OSCAR_MCP_INCLUDE_PII", "").lower()
             in {"1", "true", "yes"},
         )
