@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .database import NIGHT_SQL
+from .database import DEFAULT_SQL_TIMEOUT, NIGHT_SQL
 
 OSCAR_PROJECT = "https://gitlab.com/pholy/OSCAR-code"
 GLOSSARY_SOURCE = "OSCAR: help/help_en/glossary.html"
@@ -432,6 +432,15 @@ SQL_RULES: dict[str, Any] = {
         "named event_type only says whether it is a flag (0) or a span (1).",
         "Leak spans live in respiratory_events too but are not respiratory "
         "events and never count toward AHI.",
+    ],
+    "limits": [
+        "run_sql is cancelled if it exceeds its time budget "
+        f"({DEFAULT_SQL_TIMEOUT:g}s by default, set by OSCAR_MCP_SQL_TIMEOUT).",
+        "The row limit does not bound the work: producing the first row of an "
+        "unintended cross join still requires scanning every combination, so a "
+        "missing join condition is what a cancellation usually means.",
+        "session_channel_values is by far the largest table. Join it on "
+        "session_channels.id and filter before aggregating.",
     ],
 }
 

@@ -2,6 +2,7 @@ import asyncio
 import datetime as dt
 import json
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from oscar_mcp import analysis, discovery, knowledge, server
 from oscar_mcp.database import (
     NIGHT_SQL,
     OscarDatabase,
+    QueryTimeout,
     ReadOnlyViolation,
     parse_date,
     therapy_date,
@@ -369,6 +371,55 @@ def test_run_sql_tool_wraps_guard():
     with pytest.raises(ValueError):
         server.run_sql("DELETE FROM sessions")
     assert server.run_sql("SELECT COUNT(*) AS n FROM sessions")["rows"][0]["n"] == NIGHTS
+
+
+# --- run_sql time budget --------------------------------------------------
+#
+# A row limit cannot bound an expensive query: producing the first row of a
+# runaway scan already requires all the work. Only an interrupt can.
+
+
+def test_runaway_query_is_cancelled(db):
+    """A query that would never finish must be stopped, not left hanging."""
+    started = time.monotonic()
+    with pytest.raises(QueryTimeout) as excinfo:
+        db.run_select(
+            "WITH RECURSIVE forever(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM forever) "
+            "SELECT COUNT(*) FROM forever",
+            timeout=0.3,
+        )
+    assert time.monotonic() - started < 10
+    assert "cross join" in str(excinfo.value)
+
+
+def test_time_budget_does_not_disturb_normal_queries(db):
+    """The interrupt hook must leave ordinary queries and later ones untouched."""
+    assert db.run_select("SELECT COUNT(*) AS n FROM sessions")["rows"][0]["n"] == NIGHTS
+    with pytest.raises(QueryTimeout):
+        db.run_select(
+            "WITH RECURSIVE forever(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM forever) "
+            "SELECT COUNT(*) FROM forever",
+            timeout=0.3,
+        )
+    # The handler must be cleared afterwards, or the next query inherits a
+    # deadline that has already passed and dies instantly.
+    assert db.run_select("SELECT COUNT(*) AS n FROM sessions")["rows"][0]["n"] == NIGHTS
+
+
+def test_timeout_surfaces_through_the_tool(db, monkeypatch):
+    monkeypatch.setenv("OSCAR_MCP_SQL_TIMEOUT", "0.3")
+    with pytest.raises(ValueError, match="Cancelled"):
+        server.run_sql(
+            "WITH RECURSIVE forever(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM forever) "
+            "SELECT COUNT(*) FROM forever"
+        )
+
+
+def test_timeout_setting_is_documented():
+    """The budget has to be discoverable, or a cancellation looks like a bug."""
+    limits = knowledge.sql_rules()["limits"]
+    assert any("OSCAR_MCP_SQL_TIMEOUT" in rule for rule in limits)
+    assert any("cross join" in rule for rule in limits)
 
 
 def test_unknown_profile_is_rejected():

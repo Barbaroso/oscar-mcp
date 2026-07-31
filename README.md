@@ -143,7 +143,7 @@ traps are real: `sessions.session_id` is not the primary key, `channels.id` is n
 channel identifier, and `session_settings.value` is a device-specific code where `1` means
 *Nasal* on `MaskType` but *Full Face* on `RMS9_Mask`.
 
-`run_sql` therefore does three things beyond running the query:
+`run_sql` therefore does four things beyond running the query:
 
 - **Warns on query shapes known to return silently wrong results** — wrong join key, a date
   taken from `start_time` without the noon shift, or reading `respiratory_events.event_type`
@@ -152,6 +152,11 @@ channel identifier, and `session_settings.value` is a device-specific code where
   `channel_options`, so a raw number is never left to be guessed.
 - **Points to `get_therapy_settings`** for categorical settings, which applies the mapping
   itself.
+- **Cancels a query that overruns its time budget** (10 s by default), rather than hanging.
+  The row limit cannot prevent this on its own: producing the *first* row of an unintended
+  cross join already requires scanning every combination, so a missing join condition runs
+  forever no matter how few rows you asked for. The cancellation message says so, because
+  that is nearly always the cause.
 
 `describe_database` returns the foreign keys and the same rules, because guidance that lives
 only in a passive resource is not read by the caller who needs it.
@@ -239,6 +244,7 @@ model your client is using.
 | Variable | Effect |
 |---|---|
 | `OSCAR_DATA_DIR` | Path to the folder containing `oscar.db`. Overrides auto-detection. |
+| `OSCAR_MCP_SQL_TIMEOUT` | Seconds a `run_sql` query may run before it is cancelled. Default 10. |
 | `OSCAR_MCP_INCLUDE_PII` | `1` to include personal identifiers. Off by default. |
 
 ## Development

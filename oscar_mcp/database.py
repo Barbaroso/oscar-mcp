@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
+import os
 import re
 import sqlite3
 import threading
-from collections.abc import Sequence
+import time
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +18,16 @@ from .discovery import OscarLocation, discover
 # OSCAR groups sessions into therapy "nights". A session that starts before this
 # hour counts towards the previous calendar day.
 DEFAULT_DAY_SPLIT_HOUR = 12
+
+# Wall-clock ceiling for a caller-supplied query. sqlite3's own ``timeout``
+# argument only covers waiting for a lock, so a query that is merely expensive
+# runs until it finishes -- an accidental cross join has no natural end. The
+# progress handler below is the only hook that can interrupt work in progress.
+DEFAULT_SQL_TIMEOUT = 10.0
+
+# How many SQLite VM instructions between deadline checks. Small enough that the
+# deadline is honoured promptly, large enough that the check costs nothing.
+_PROGRESS_INTERVAL = 10_000
 
 # Only single read-only SELECT/WITH statements are accepted by run_sql.
 _FORBIDDEN_SQL = re.compile(
@@ -100,6 +113,20 @@ class ReadOnlyViolation(ValueError):
     """Raised when a caller supplies SQL that could modify the database."""
 
 
+class QueryTimeout(RuntimeError):
+    """Raised when a query exceeds its wall-clock budget and is interrupted."""
+
+
+def sql_timeout_default() -> float:
+    """Return the configured query budget in seconds."""
+    raw = os.environ.get("OSCAR_MCP_SQL_TIMEOUT", "")
+    try:
+        seconds = float(raw)
+    except ValueError:
+        return DEFAULT_SQL_TIMEOUT
+    return seconds if seconds > 0 else DEFAULT_SQL_TIMEOUT
+
+
 def to_datetime(epoch_ms: int | None) -> dt.datetime | None:
     """Convert OSCAR's millisecond epoch timestamps to local datetimes."""
     if epoch_ms is None:
@@ -157,6 +184,34 @@ class OscarDatabase:
         if con is not None:
             con.close()
             self._local.con = None
+
+    @contextlib.contextmanager
+    def _timebox(self, seconds: float) -> Iterator[None]:
+        """Interrupt any query still running after ``seconds``.
+
+        SQLite has no statement timeout. The progress handler is called every
+        few thousand VM instructions and aborts the statement when it returns
+        non-zero, which is what makes an expensive query interruptible at all --
+        row limits cannot help, because producing the first row of a runaway
+        join already requires the whole scan.
+        """
+        con = self.connection
+        deadline = time.monotonic() + seconds
+        con.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, _PROGRESS_INTERVAL)
+        try:
+            yield
+        except sqlite3.OperationalError as exc:
+            if "interrupted" in str(exc).lower():
+                raise QueryTimeout(
+                    f"Query exceeded the {seconds:g}s budget and was cancelled. "
+                    "This usually means an unintended cross join: a missing or wrong join "
+                    "condition makes SQLite scan every combination of rows before it can "
+                    "return even one. Check that every table in FROM is joined on a key, "
+                    "and see describe_database for which keys actually match."
+                ) from exc
+            raise
+        finally:
+            con.set_progress_handler(None, 0)
 
     def query(self, sql: str, params: Sequence[Any] = ()) -> list[dict]:
         cur = self.connection.execute(sql, params)
@@ -320,8 +375,8 @@ class OscarDatabase:
     # ------------------------------------------------------------------
     # arbitrary read-only SQL
     # ------------------------------------------------------------------
-    def run_select(self, sql: str, limit: int = 200) -> dict:
-        """Execute a single read-only SELECT, enforcing a row limit."""
+    def run_select(self, sql: str, limit: int = 200, timeout: float | None = None) -> dict:
+        """Execute a single read-only SELECT, enforcing a row limit and a time budget."""
         cleaned = sql.strip().rstrip(";").strip()
         if not cleaned:
             raise ReadOnlyViolation("Empty query.")
@@ -339,10 +394,12 @@ class OscarDatabase:
                     )
 
         limit = max(1, min(int(limit), 5000))
-        cur = self.connection.execute(cleaned)
-        rows = cur.fetchmany(limit)
-        columns = [d[0] for d in cur.description] if cur.description else []
-        truncated = len(cur.fetchmany(1)) > 0
+        budget = sql_timeout_default() if timeout is None else float(timeout)
+        with self._timebox(budget):
+            cur = self.connection.execute(cleaned)
+            rows = cur.fetchmany(limit)
+            columns = [d[0] for d in cur.description] if cur.description else []
+            truncated = len(cur.fetchmany(1)) > 0
         scrubbed = [self._scrub(dict(r)) for r in rows]
 
         result = {

@@ -13,6 +13,7 @@ from . import analysis, knowledge
 from .database import (
     JOURNAL_MACHINE_TYPE,
     OscarDatabase,
+    QueryTimeout,
     ReadOnlyViolation,
     parse_date,
     to_iso,
@@ -586,11 +587,11 @@ def get_session_details(session_db_id: int, profile: str | None = None) -> dict:
 
 @server.tool(
     description="Run a read-only SELECT against the OSCAR database for analysis the other "
-    "tools do not cover. Only SELECT/WITH statements are permitted. Call describe_database "
-    "first: this schema reuses column names across tables, so a wrong join key returns zero "
-    "rows instead of an error. For mask, mode and other categorical settings prefer "
-    "get_therapy_settings, because raw values are device-specific codes whose meaning "
-    "depends on the channel."
+    "tools do not cover. Only SELECT/WITH statements are permitted, and a query is cancelled "
+    "if it exceeds its time budget. Call describe_database first: this schema reuses column "
+    "names across tables, so a wrong join key returns zero rows instead of an error. For mask, "
+    "mode and other categorical settings prefer get_therapy_settings, because raw values are "
+    "device-specific codes whose meaning depends on the channel."
 )
 def run_sql(sql: str, limit: int = 200) -> dict:
     db = get_db()
@@ -598,6 +599,8 @@ def run_sql(sql: str, limit: int = 200) -> dict:
         return db.run_select(sql, limit=limit)
     except ReadOnlyViolation as exc:
         raise ValueError(f"Rejected: {exc}") from exc
+    except QueryTimeout as exc:
+        raise ValueError(f"Cancelled: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
