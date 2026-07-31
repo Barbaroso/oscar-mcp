@@ -1,8 +1,8 @@
 # OSCAR MCP Server
 
 A read-only [Model Context Protocol](https://modelcontextprotocol.io) server that lets an
-LLM assistant — Claude Desktop, GitHub Copilot CLI, VS Code, or anything else that speaks
-MCP — analyse your own CPAP/BiPAP therapy data from
+LLM assistant — Claude Desktop, ChatGPT Codex, GitHub Copilot CLI, VS Code, or anything
+else that speaks MCP — analyse your own CPAP/BiPAP therapy data from
 [OSCAR](https://gitlab.com/pholy/OSCAR-code).
 
 It talks directly to the SQLite database that OSCAR 2.x writes (`oscar.db`), so no export
