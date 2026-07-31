@@ -531,6 +531,21 @@ def test_glossary_defines_the_events_that_drive_ahi():
     assert {"Apnea", "Hypopnea", "Clear Airway", "RERA", "Large Leak"} <= terms
 
 
+def test_every_tool_declares_itself_read_only():
+    """A client can only grant blanket trust if the server claims it on the wire.
+
+    The guarantee is real -- mode=ro plus a SELECT-only guard -- but a client
+    cannot see either, so an unannotated tool gets prompted for on every call.
+    """
+    tools = asyncio.run(server.server.list_tools())
+    assert len(tools) >= 11
+    for tool in tools:
+        annotations = tool.annotations
+        assert annotations is not None, f"{tool.name} advertises no annotations"
+        assert annotations.read_only_hint is True, f"{tool.name} is not marked read-only"
+        assert annotations.destructive_hint is False, f"{tool.name} claims to be destructive"
+
+
 def test_resources_are_registered_and_valid_json():
     """The model must be reachable as MCP resources, not merely importable."""
     registered = {str(r.uri): r for r in asyncio.run(server.server.list_resources())}

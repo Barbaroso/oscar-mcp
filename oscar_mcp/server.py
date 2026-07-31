@@ -8,6 +8,7 @@ import os
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
+from mcp.types import ToolAnnotations
 
 from . import analysis, knowledge
 from .database import (
@@ -17,6 +18,18 @@ from .database import (
     ReadOnlyViolation,
     parse_date,
     to_iso,
+)
+
+# Every tool here only reads: the database is opened with SQLite's mode=ro and
+# run_sql accepts nothing but a single SELECT. Saying so in the tool metadata
+# lets a client grant the whole server a read-only trust policy instead of
+# interrupting for approval on each call, which is the difference between a
+# usable session and twenty prompts.
+READ_ONLY = ToolAnnotations(
+    read_only_hint=True,
+    destructive_hint=False,
+    idempotent_hint=True,
+    open_world_hint=False,
 )
 
 INSTRUCTIONS = """\
@@ -199,7 +212,8 @@ def _resolve(profile: str | None) -> tuple[OscarDatabase, int]:
 # ----------------------------------------------------------------------
 @server.tool(
     description="List OSCAR profiles with their data coverage. Call this first "
-    "when you do not know which profile or date range is available."
+    "when you do not know which profile or date range is available.",
+    annotations=READ_ONLY,
 )
 def list_profiles() -> dict:
     db = get_db()
@@ -224,7 +238,8 @@ def list_profiles() -> dict:
 
 
 @server.tool(
-    description="Get the therapy devices recorded for a profile, including model and last import time."
+    description="Get the therapy devices recorded for a profile, including model and last import time.",
+    annotations=READ_ONLY,
 )
 def get_device_info(profile: str | None = None) -> dict:
     db, pid = _resolve(profile)
@@ -241,7 +256,8 @@ def get_device_info(profile: str | None = None) -> dict:
 
 @server.tool(
     description="List the data channels OSCAR recorded, mapping numeric channel ids to "
-    "human readable names such as AHI, Pressure, Leak Rate or Flow Limitation."
+    "human readable names such as AHI, Pressure, Leak Rate or Flow Limitation.",
+    annotations=READ_ONLY,
 )
 def list_channels(only_used: bool = True, profile: str | None = None) -> dict:
     db, pid = _resolve(profile)
@@ -265,7 +281,8 @@ def list_channels(only_used: bool = True, profile: str | None = None) -> dict:
 
 @server.tool(
     description="Describe the OSCAR database: tables, columns, foreign keys, and the join "
-    "and decoding rules that make a query correct. Read this before writing run_sql."
+    "and decoding rules that make a query correct. Read this before writing run_sql.",
+    annotations=READ_ONLY,
 )
 def describe_database() -> dict:
     db = get_db()
@@ -283,7 +300,8 @@ def describe_database() -> dict:
 # ----------------------------------------------------------------------
 @server.tool(
     description="Return a night-by-night table of therapy results (usage hours, AHI, "
-    "event counts, pressure and leak). Dates are ISO format; omit them for all data."
+    "event counts, pressure and leak). Dates are ISO format; omit them for all data.",
+    annotations=READ_ONLY,
 )
 def get_daily_summaries(
     start_date: str | None = None,
@@ -313,7 +331,8 @@ def get_daily_summaries(
 
 @server.tool(
     description="Aggregate statistics for a period: usage and compliance, AHI distribution "
-    "and severity band, event totals, pressure and leak summaries, plus simple trends."
+    "and severity band, event totals, pressure and leak summaries, plus simple trends.",
+    annotations=READ_ONLY,
 )
 def get_statistics(
     start_date: str | None = None,
@@ -336,7 +355,8 @@ def get_statistics(
 
 @server.tool(
     description="Everything recorded for one night: each session, machine settings in "
-    "effect, event counts and per-channel statistics. Date must be ISO format."
+    "effect, event counts and per-channel statistics. Date must be ISO format.",
+    annotations=READ_ONLY,
 )
 def get_daily_detail(date: str, profile: str | None = None) -> dict:
     db, pid = _resolve(profile)
@@ -413,7 +433,8 @@ def get_daily_detail(date: str, profile: str | None = None) -> dict:
 @server.tool(
     description="Individual respiratory events (apneas, hypopneas, RERAs) for one night, "
     "with counts by type and an hourly histogram showing when they clustered. "
-    "Large leak spans are reported separately from respiratory events."
+    "Large leak spans are reported separately from respiratory events.",
+    annotations=READ_ONLY,
 )
 def get_respiratory_events(
     date: str,
@@ -486,7 +507,8 @@ def get_respiratory_events(
 
 @server.tool(
     description="Machine settings over time (pressure limits, EPR, mode, ramp, humidity). "
-    "Set changes_only to report just the nights where a setting changed."
+    "Set changes_only to report just the nights where a setting changed.",
+    annotations=READ_ONLY,
 )
 def get_therapy_settings(
     start_date: str | None = None,
@@ -543,7 +565,10 @@ def get_therapy_settings(
     }
 
 
-@server.tool(description="Per-channel statistics for a single session, identified by its session_db_id.")
+@server.tool(
+    description="Per-channel statistics for a single session, identified by its session_db_id.",
+    annotations=READ_ONLY,
+)
 def get_session_details(session_db_id: int, profile: str | None = None) -> dict:
     db, pid = _resolve(profile)
     session = db.query_one(
@@ -593,7 +618,8 @@ def get_session_details(session_db_id: int, profile: str | None = None) -> dict:
     "if it exceeds its time budget. Call describe_database first: this schema reuses column "
     "names across tables, so a wrong join key returns zero rows instead of an error. For mask, "
     "mode and other categorical settings prefer get_therapy_settings, because raw values are "
-    "device-specific codes whose meaning depends on the channel."
+    "device-specific codes whose meaning depends on the channel.",
+    annotations=READ_ONLY,
 )
 def run_sql(sql: str, limit: int = 200) -> dict:
     db = get_db()
